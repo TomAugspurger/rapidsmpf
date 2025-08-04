@@ -71,10 +71,13 @@ async def test_dask_ucxx_cluster_sync() -> None:
 
 @pytest.mark.parametrize("partition_count", [None, 3])
 @pytest.mark.parametrize("sort", [True, False])
+@pytest.mark.parametrize("use_concat_insert", [True, False])
 def test_dask_cudf_integration(
     loop: pytest.FixtureDef,  # noqa: F811
     partition_count: int,
-    sort: bool,  # noqa: FBT001
+    *,
+    sort: bool,
+    use_concat_insert: bool,
 ) -> None:
     # Test basic Dask-cuDF integration
     pytest.importorskip("dask_cudf")
@@ -103,6 +106,7 @@ def test_dask_cudf_integration(
                 ["id", "name"],
                 sort=sort,
                 partition_count=partition_count,
+                extra_options={"use_concat_insert": use_concat_insert},
             )
             assert shuffled.npartitions == (partition_count or partition_count_in)
             got = shuffled.compute()

@@ -76,6 +76,8 @@ class DaskCudfIntegration:
         ctx = get_worker_context()
         assert ctx.br is not None
         on = options["on"]
+        use_concat_insert = options.get("use_concat_insert", False)
+
         if other:
             df = df.sort_values(on)
             (sort_boundaries,) = other
@@ -95,7 +97,10 @@ class DaskCudfIntegration:
                 br=ctx.br,
                 stream=DEFAULT_STREAM,
             )
-        shuffler.insert_chunks(packed_inputs)
+        if use_concat_insert:
+            shuffler.concat_insert(packed_inputs)
+        else:
+            shuffler.insert_chunks(packed_inputs)
 
     @staticmethod
     def extract_partition(
@@ -140,6 +145,7 @@ def dask_cudf_shuffle(
     *,
     sort: bool = False,
     partition_count: int | None = None,
+    extra_options: dict[str, Any] | None = None,
 ) -> dask_cudf.DataFrame:
     """
     Shuffle a dask_cudf.DataFrame with RapidsMPF.
@@ -157,6 +163,10 @@ def dask_cudf_shuffle(
     partition_count
         Output partition count. Default will preserve
         the input partition count.
+    extra_options
+        Extra options to pass to ``insert_partition`` and ``extract_partition``,
+        in addition to ``on`` and ``column_names``, which are set in this
+        method.
 
     Returns
     -------
@@ -179,13 +189,17 @@ def dask_cudf_shuffle(
         sort_boundary_names = ((boundaries._name, 0),)
     else:
         sort_boundary_names = ()
+
+    options = {"on": on, "column_names": list(df0.columns)}
+    if extra_options:
+        options.update(extra_options)
     graph = rapidsmpf_shuffle_graph(
         name_in,
         name_out,
         count_in,
         count_out,
         DaskCudfIntegration,
-        {"on": on, "column_names": list(df0.columns)},
+        options,
         *sort_boundary_names,
     )
 
