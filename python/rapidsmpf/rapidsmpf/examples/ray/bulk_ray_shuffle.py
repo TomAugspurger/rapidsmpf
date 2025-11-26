@@ -120,6 +120,10 @@ class BulkRayShufflerActor(BaseShufflingActor):
         )
         self.br = br
 
+    def report_statistics(self) -> str:
+        """Report the statistics."""
+        return self.stats.report()
+
     def cleanup(self) -> None:
         """Cleanup the UCXX communication and the shuffle operation."""
         if self.enable_statistics and self.stats is not None:
@@ -329,6 +333,11 @@ def bulk_ray_shuffle(
     )
     end_time = time.time()
     print(f"Time taken: {end_time - start_time} seconds")
+
+    if enable_statistics:
+        for actor in actors:
+            print(ray.get(actor.report_statistics.remote()))
+
     ray.get([actor.cleanup.remote() for actor in actors])
 
 

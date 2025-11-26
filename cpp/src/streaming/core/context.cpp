@@ -143,7 +143,7 @@ std::shared_ptr<Statistics> Context::statistics() const noexcept {
 }
 
 std::shared_ptr<Channel> Context::create_channel() const noexcept {
-    return std::shared_ptr<Channel>(new Channel(spillable_messages()));
+    return std::shared_ptr<Channel>(new Channel(spillable_messages(), &comm_->logger()));
 }
 
 std::shared_ptr<BoundedQueue> Context::create_bounded_queue(

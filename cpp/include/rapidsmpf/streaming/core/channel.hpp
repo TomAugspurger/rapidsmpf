@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
@@ -86,11 +87,15 @@ class Channel {
     [[nodiscard]] bool empty() const noexcept;
 
   private:
-    Channel(std::shared_ptr<SpillableMessages> spillable_messages)
-        : sm_{std::move(spillable_messages)} {}
+    Channel(
+        std::shared_ptr<SpillableMessages> spillable_messages,
+        rapidsmpf::Communicator::Logger* logger
+    )
+        : sm_{std::move(spillable_messages)}, logger_{logger} {}
 
     coro::ring_buffer<SpillableMessages::MessageId, 1> rb_;
     std::shared_ptr<SpillableMessages> sm_;
+    rapidsmpf::Communicator::Logger* logger_;
 };
 
 /**
