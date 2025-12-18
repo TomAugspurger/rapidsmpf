@@ -40,7 +40,7 @@ def main() -> int:
     # Create a context that will be used by all streaming nodes.
     ctx = Context(
         comm=single_process_comm(options),
-        br=BufferResource(RmmResourceAdaptor(rmm.mr.get_current_device_resource())),
+        br=BufferResource(RmmResourceAdaptor(rmm.mr.get_current_device_resource())),  # type: ignore[arg-type]
         options=options,
     )
 
