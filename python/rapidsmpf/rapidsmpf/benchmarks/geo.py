@@ -1,45 +1,7 @@
+"""Geo things."""
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-Regridding.
-
-A benchmark for a regridding / reprojection operation.
-
-See https://github.com/coiled/benchmarks/discussions/1545 for details.
-
-## Stages
-
-1. Load Zarr in native chunks `{"time": 1}`
-2. Regrid each chunk to a (coarser) target grid (e.g. 1440x721 -> 240x121)
-3. Rechunk to (larger) output chunks to keep size roughly constant
-4. Write to Zarr
-
-## Data
-
-Our data will come from a zarr store. We'll generate it locally and store it to disk.
-In a real workload, each variable can be regridded independently, so we'll just generate
-one variable for now.
-
-We'll need to choose array and chunk sizes.
-
-## Workload
-
-The computational workload is the regridding operation itself.
-
-## Implementation
-
-The rechunking is will induce the most communication and the highest memory
-usage.
-
-Outside of rechunking, the regridding operation will have some intermediate
-data in memory.
-
-To perform the regridding, we need the entirety of a chunk (single time slice)
-in memory. No problem there.
-"""
-
-# https://github.com/coiled/benchmarks/discussions/1545#discussioncomment-10619740
 from __future__ import annotations
 
 import argparse
@@ -186,7 +148,7 @@ def ensure_array(
 
 
 def generate_temperature_single(
-    array: zarr.Array, shape: tuple[int, int], seed: int, time_index: int
+    array: zarr.Array, shape: tuple[int, ...], seed: int, time_index: int
 ) -> None:
     """
     Generate a temperature array.
@@ -205,13 +167,13 @@ def generate_temperature_single(
     """
     rng = np.random.RandomState(seed=seed)
     data = rng.standard_normal(shape).astype(np.float32)
-    array[time_index, :, :] = data
+    array[time_index, ...] = data
 
 
 def generate_data(
     input_path: Path,
     input_group: str,
-    shape: tuple[int, int, int],
+    shape: tuple[int, ...],
 ) -> None:
     """
     Generate the input zarr data.
@@ -229,8 +191,7 @@ def generate_data(
     shape
         Tuple of (time, latitude, longitude) dimensions.
     """
-    time_dim, lat_dim, lon_dim = shape
-    chunks = (1, lat_dim, lon_dim)
+    chunks = (1, *shape[1:])
 
     print(f"Generating data with shape {shape} and chunks {chunks}")
     print(f"Writing to {input_path}/{input_group}/temperature")
@@ -246,6 +207,8 @@ def generate_data(
 
     assert isinstance(group, zarr.Group)
 
+    time_dim, lon_dim, lat_dim = shape[:3]
+
     ensure_array(group, "latitude", (lat_dim,), lambda: generate_latitude(lat_dim))
     ensure_array(group, "longitude", (lon_dim,), lambda: generate_longitude(lon_dim))
     ensure_array(group, "time", (time_dim,), lambda: generate_time(time_dim))
@@ -255,7 +218,7 @@ def generate_data(
         temperature = group.create_array(
             "temperature",
             chunks=chunks,
-            shape=(time_dim, lat_dim, lon_dim),
+            shape=(time_dim, lat_dim, lon_dim, *shape[3:]),
             dtype=np.float32,
             # overwrite=True,
         )
@@ -267,7 +230,7 @@ def generate_data(
                 pool.submit(
                     generate_temperature_single,
                     temperature,
-                    (lat_dim, lon_dim),
+                    shape[1:],
                     i,
                     time_index,
                 )
