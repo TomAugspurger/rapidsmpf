@@ -2,9 +2,9 @@ select
     c_name,
     c_custkey,
     o_orderkey,
-    o_orderdate as o_orderdat,
+    o_orderdate,
     o_totalprice,
-    sum(l_quantity) as col6
+    sum(l_quantity) as sum_quantity
 from
     customer,
     orders,
