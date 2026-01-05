@@ -1,5 +1,5 @@
 """Geo things."""
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -189,9 +189,12 @@ def generate_data(
     input_group
         Group name for the input data.
     shape
-        Tuple of (time, latitude, longitude) dimensions.
+        Tuple of (time, longitude, latitude, ...) dimensions.
+        Note: The array is created with dimensions reordered to (time, lat, lon, ...).
     """
-    chunks = (1, *shape[1:])
+    time_dim, lon_dim, lat_dim = shape[:3]
+    # Array shape will be (time, lat, lon, ...) so chunks must match
+    chunks = (1, lat_dim, lon_dim, *shape[3:])
 
     print(f"Generating data with shape {shape} and chunks {chunks}")
     print(f"Writing to {input_path}/{input_group}/temperature")
@@ -206,8 +209,6 @@ def generate_data(
         group = store[input_group]
 
     assert isinstance(group, zarr.Group)
-
-    time_dim, lon_dim, lat_dim = shape[:3]
 
     ensure_array(group, "latitude", (lat_dim,), lambda: generate_latitude(lat_dim))
     ensure_array(group, "longitude", (lon_dim,), lambda: generate_longitude(lon_dim))
@@ -225,12 +226,15 @@ def generate_data(
         # Now fill in parallel
         pool = concurrent.futures.ThreadPoolExecutor()
         futures = []
+        # The temperature array has shape (time, lat, lon, *extra_dims)
+        # So a single time slice has shape (lat, lon, *extra_dims)
+        slice_shape = (lat_dim, lon_dim, *shape[3:])
         for i, time_index in enumerate(range(time_dim)):
             futures.append(
                 pool.submit(
                     generate_temperature_single,
                     temperature,
-                    shape[1:],
+                    slice_shape,
                     i,
                     time_index,
                 )
