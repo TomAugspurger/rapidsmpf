@@ -54,12 +54,15 @@ TPCH_TABLES = [
 
 
 def discover_benchmarks(
-    benchmark_dir: Path, sql_dir: Path
-) -> list[tuple[str, Path, Path]]:
+    benchmark_dir: Path,
+) -> list[tuple[str, Path]]:
     """
     Discover benchmark binaries and their corresponding SQL files.
 
-    Returns a list of tuples: (query_name, binary_path, sql_path)
+    Returns a list of tuples: (query_name, binary_path).
+
+    `query_name` is in the format "q<query_id>", where `<query_id>` is
+    the zero-padded query number.
     """
     benchmarks = []
     pattern = re.compile(r"^q(\d+)$")
@@ -72,31 +75,25 @@ def discover_benchmarks(
             continue
 
         query_name = binary.name
-        sql_path = sql_dir / f"{query_name}.sql"
-
-        if sql_path.exists():
-            benchmarks.append((query_name, binary, sql_path))
-        else:
-            print(f"Warning: No SQL file found for {query_name} at {sql_path}")
+        benchmarks.append((query_name, binary))
 
     return sorted(benchmarks)
 
 
-def generate_expected(sql_path: Path, input_dir: Path, output_path: Path) -> None:
+def generate_expected(sql: str, input_dir: Path, output_path: Path) -> None:
     """
     Generate expected results by running a SQL query via DuckDB.
 
     Parameters
     ----------
-    sql_path
-        Path to the SQL query file
-    input_dir:
+    sql
+        The SQL query to execute
+    input_dir
         Directory containing TPC-H parquet files
     output_path
         Path to write the expected parquet result
     """
     con = duckdb.connect()
-
     # Register TPC-H tables as views from parquet files
     for table in TPCH_TABLES:
         # Try both single file and directory patterns
@@ -115,8 +112,7 @@ def generate_expected(sql_path: Path, input_dir: Path, output_path: Path) -> Non
         )
 
     # Read and execute the query
-    query = sql_path.read_text()
-    result = con.execute(query).arrow().read_all()
+    result = con.execute(sql).arrow().read_all()
 
     # Write result to parquet
     pq.write_table(result, output_path)
@@ -233,6 +229,7 @@ def compare_parquet(
     decimal: int = 2,
     *,
     check_timezone: bool = False,
+    check_precision: bool | dict[str, bool] = True,
 ) -> tuple[bool, str | None]:
     """
     Compare two parquet files for exact equality.
@@ -247,6 +244,12 @@ def compare_parquet(
         Number of decimal places to compare for floating point values
     check_timezone
         Whether to check for timezone differences
+    check_precision
+        Whether to check for precision (int16 vs. int32) differences.
+
+        Can be provided as a single boolean, which applies to all columns,
+        or a dictionary, which applies to specific columns (columns not in the
+        dictionary default to True).
 
     Returns
     -------
@@ -266,6 +269,9 @@ def compare_parquet(
             f"Schema name mismatch: {output.schema.names} != {expected.schema.names}",
         )
 
+    if isinstance(check_precision, bool):
+        check_precision = {name: check_precision for name in output.schema.names}
+
     # 2. types...
     errors = []
     for name in output.schema.names:
@@ -280,7 +286,15 @@ def compare_parquet(
                 and pa.types.is_timestamp(e_field.type)
             ):
                 continue
-            errors.append(f"\t{o_field.type} != {e_field.type}")
+
+            # We don't care about precision differences for integer and floating point types
+            # but we *do* care that *both* are float or int.
+            if not check_precision.get(name, True) and (
+                (pa.types.is_integer(o_field.type) and pa.types.is_integer(e_field.type)) or
+                (pa.types.is_floating(o_field.type) and pa.types.is_floating(e_field.type))
+            ):
+                continue
+            errors.append(f"\t{o_field.type} != {e_field.type} [{name=}]")
     if errors:
         return False, "\n".join(["Field type mismatch (output != expected)", *errors])
 
@@ -319,7 +333,7 @@ def compare_parquet(
 def validate_benchmark(
     query_name: str,
     binary_path: Path,
-    sql_path: Path,
+    sql: str,
     input_dir: Path,
     output_dir: Path,
     extra_args: list[str] | None = None,
@@ -333,6 +347,7 @@ def validate_benchmark(
 
     Returns True if validation passes, False otherwise.
     """
+
     print(f"\nValidating {query_name}...")
 
     expected_path = output_dir / f"{query_name}_expected.parquet"
@@ -344,7 +359,7 @@ def validate_benchmark(
     else:
         print("  Generating expected via DuckDB...")
         try:
-            generate_expected(sql_path, input_dir, expected_path)
+            generate_expected(sql, input_dir, expected_path)
         except Exception as e:
             print(f"  FAILED: Expected generation error: {e}")
             return False
@@ -365,10 +380,19 @@ def validate_benchmark(
         print(f"  FAILED: Benchmark did not produce output file: {benchmark_output}")
         return False
 
+    query_id = int(query_name.lstrip("q"))
+    if query_id == 9:
+        # In DuckDB, year(...) returns an int64
+        check_precision = {
+            "o_year": False,
+        }
+    else:
+        check_precision = True
+
     # Compare results
     print("  Comparing results...")
     is_equal, message = compare_parquet(
-        benchmark_output, expected_path, decimal=decimal
+        benchmark_output, expected_path, decimal=decimal, check_precision=check_precision
     )
 
     if is_equal:
@@ -456,10 +480,6 @@ def main():
         print(f"Error: Benchmark directory does not exist: {args.benchmark_dir}")
         sys.exit(1)
 
-    if not args.sql_dir.exists():
-        print(f"Error: SQL directory does not exist: {args.sql_dir}")
-        sys.exit(1)
-
     if args.generate_data:
         generate_data(args.input_dir)
 
@@ -479,7 +499,7 @@ def main():
     extra_args = args.benchmark_args.split() if args.benchmark_args else None
 
     # Discover benchmarks
-    benchmarks = discover_benchmarks(args.benchmark_dir, args.sql_dir)
+    benchmarks = discover_benchmarks(args.benchmark_dir)
 
     if not benchmarks:
         print("No benchmarks found!")
@@ -488,8 +508,8 @@ def main():
     # Filter to specific queries if requested
     if args.queries:
         benchmarks = [
-            (name, binary, sql)
-            for name, binary, sql in benchmarks
+            (name, binary)
+            for name, binary in benchmarks
             if name in args.queries
         ]
         if not benchmarks:
@@ -497,16 +517,23 @@ def main():
             sys.exit(1)
 
     print(f"Found {len(benchmarks)} benchmark(s) to validate:")
-    for name, binary, sql in benchmarks:
-        print(f"  {name}: {binary} + {sql}")
+    for name, binary in benchmarks:
+        print(f"  {name}: {binary}")
+
+    # Get SQL queries
+    con = duckdb.connect()
+    con.execute("INSTALL tpch")
+    con.execute("LOAD tpch")
+    queries = {q[0]: q[1] for q in con.execute("FROM tpch_queries();").fetchall()}
 
     # Run validations
     results = {}
-    for query_name, binary_path, sql_path in benchmarks:
+    for query_name, binary_path in benchmarks:
+        sql = queries[int(query_name.lstrip("q"))]
         passed = validate_benchmark(
             query_name,
             binary_path,
-            sql_path,
+            sql,
             args.input_dir,
             output_dir,
             extra_args,
