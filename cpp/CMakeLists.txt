@@ -131,6 +131,7 @@ rapids_find_package(
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
+include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_cuco.cmake)
 include(../cmake/thirdparty/get_cucascade.cmake)
 
