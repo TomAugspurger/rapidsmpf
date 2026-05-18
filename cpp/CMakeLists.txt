@@ -135,6 +135,12 @@ include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_cuco.cmake)
 include(../cmake/thirdparty/get_cucascade.cmake)
 
+rapids_find_package(
+  CCCL REQUIRED
+  BUILD_EXPORT_SET rapidsmpf-exports
+  INSTALL_EXPORT_SET rapidsmpf-exports
+)
+
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
     ucxx REQUIRED
