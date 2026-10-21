@@ -20,8 +20,6 @@
 #include <utility>
 #include <vector>
 
-#include <rapidsmpf/memory/reservation_recorder.h>
-
 #include <cuda/memory_resource>
 #include <cuda/stream>
 
@@ -34,6 +32,7 @@
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/reservation_attributes.hpp>
+#include <rapidsmpf/memory/reservation_events.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
