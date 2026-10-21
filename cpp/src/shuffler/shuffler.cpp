@@ -133,7 +133,11 @@ class Shuffler::Progress {
 
             for (auto&& message : completed_messages) {
                 auto chunk = detail::Chunk::deserialize(
-                    message->metadata(), shuffler_.br_, false, message->release_data()
+                    message->metadata(),
+                    shuffler_.br_,
+                    false,
+                    message->release_data(),
+                    shuffler_.attributes_
                 );
 
                 RAPIDSMPF_EXPECTS(
@@ -219,11 +223,13 @@ Shuffler::Shuffler(
     BufferResource* br,
     FinishedCallback&& finished_callback,
     PartitionOwner partition_owner_fn,
-    std::unique_ptr<communicator::MetadataPayloadExchange> mpe
+    std::unique_ptr<communicator::MetadataPayloadExchange> mpe,
+    ReservationAttributes attributes
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
       br_{br},
+      attributes_{std::move(attributes)},
       to_send_{},
       received_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{std::move(comm)},
@@ -235,7 +241,9 @@ Shuffler::Shuffler(
                     [this](std::size_t size) -> std::unique_ptr<Buffer> {
                         return br_->make_buffer(
                             br_->stream_pool()->get_stream(),
-                            br_->reserve_or_fail(size, ADDRESSABLE_MEMORY_TYPES)
+                            br_->reserve_or_fail(
+                                size, ADDRESSABLE_MEMORY_TYPES, attributes_
+                            )
                         );
                     },
                     comm_->progress_thread()->statistics()
@@ -340,8 +348,11 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
-            auto reservation =
-                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
+            auto reservation = br_->reserve_or_fail(
+                packed_data.data->size,
+                SPILL_TARGET_MEMORY_TYPES,
+                spill_reservation_attributes()
+            );
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
             chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
