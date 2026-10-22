@@ -19,6 +19,10 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
     BufferResource,
     OwningDeviceMemoryResource,
+    ReservationEventMemoryType,
+    ReservationReleaseReason,
+    ReservationRequestOutcome,
+    ReservationRequestPolicy,
     spill_dir_from_options,
 )
 from rapidsmpf.memory.memory_reservation import opaque_memory_usage
@@ -155,8 +159,8 @@ def test_reservation_event_recording_lifecycle() -> None:
     submitted = cast("Any", first[0])
     created = cast("Any", first[1])
     resolved = cast("Any", first[2])
-    assert submitted["memory_types"] == [0]
-    assert submitted["policy"] == 0
+    assert submitted["memory_types"] == [ReservationEventMemoryType.DEVICE]
+    assert submitted["policy"] is ReservationRequestPolicy.IMMEDIATE
     assert submitted["net_memory_delta"] is None
     assert submitted["attributes"] == {
         "site": "python",
@@ -165,7 +169,7 @@ def test_reservation_event_recording_lifecycle() -> None:
         "ratio": 1.5,
     }
     assert created["attributes"] == submitted["attributes"]
-    assert resolved["outcome"] == 0
+    assert resolved["outcome"] is ReservationRequestOutcome.GRANTED
     assert br.drain_reservation_events() == []
 
     reservation.clear()
@@ -176,6 +180,8 @@ def test_reservation_event_recording_lifecycle() -> None:
         "memory_limit_changed",
     ]
     assert [event["sequence"] for event in final] == [3, 4]
+    assert cast("Any", final[0])["reason"] is ReservationReleaseReason.CLEARED
+    assert cast("Any", final[1])["memory_type"] is ReservationEventMemoryType.DEVICE
     assert cast("Any", final[1])["configured_limit"] == -7
     assert br.stop_reservation_event_recording() == []
 
